@@ -40,7 +40,14 @@ Output Format:
 - Bullet point 3
 
 説明:
-A detailed explanation summarizing the key points of the content (around 500 characters).`
+*Key points header 1*
+Explanation of the main points of the article
+
+*Key points header 2*
+Explanation of the main points of the article
+
+(Key points can be increased arbitrarily)
+`
 
 	prompt := fmt.Sprintf("Web Page Content:\n```\n%s\n```\n\n", content)
 

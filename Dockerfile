@@ -11,10 +11,10 @@ RUN go mod download
 # Copy the rest of the source code
 COPY . .
 
-# Build the application
+# Build the Slack application
 # CGO_ENABLED=0 produces a static binary (usually preferred for containers)
 # -ldflags="-s -w" strips debug information to reduce binary size
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /describe-kun ./cmd/describe-kun
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /describe-kun-slack ./cmd/describe-kun-slack
 
 # Stage 2: Create the final runtime image
 # Using debian:bookworm-slim as it provides a standard chromium package
@@ -40,11 +40,8 @@ ENV XDG_CACHE_HOME=/tmp/.cache
 # Switch to the non-root user
 USER appuser
 
-# Copy the built binary from the builder stage
-COPY --from=builder /describe-kun /app/describe-kun
+# Copy the built Slack binary from the builder stage
+COPY --from=builder /describe-kun-slack /app/describe-kun-slack
 
-# Set the entrypoint
-ENTRYPOINT ["/app/describe-kun"]
-
-# Default command (can be overridden) - show usage
-CMD ["--help"]
+# Set the entrypoint for the Slack app
+ENTRYPOINT ["/app/describe-kun-slack"]
