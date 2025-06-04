@@ -34,12 +34,12 @@ func (c *OpenAIClient) Summarize(ctx context.Context, content string, userPrompt
 Output Format:
 (If the user asked a question, answer it here based *only* on the provided text. If the text doesn't contain the answer, state that clearly. If no question was asked, omit this section.)
 
-3行要約:
+:white_check_mark: 3行要約
 - Bullet point 1
 - Bullet point 2
 - Bullet point 3
 
-説明:
+:memo: 説明
 *Key points header 1*
 Explanation of the main points of the article
 
