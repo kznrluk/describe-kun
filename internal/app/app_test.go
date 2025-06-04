@@ -20,14 +20,22 @@ func (m *MockFetcher) Fetch(ctx context.Context, url string) (string, error) {
 
 // MockLLM is a mock implementation of the LLM interface.
 type MockLLM struct {
-	SummarizeFunc func(ctx context.Context, content string, userPrompt string) (string, error)
+	ProcessContentFunc     func(ctx context.Context, content string, userPrompt string) (string, error)
+	ProcessContentWithModeFunc func(ctx context.Context, content string, userPrompt string, mode string) (string, error)
 }
 
-func (m *MockLLM) Summarize(ctx context.Context, content string, userPrompt string) (string, error) {
-	if m.SummarizeFunc != nil {
-		return m.SummarizeFunc(ctx, content, userPrompt)
+func (m *MockLLM) ProcessContent(ctx context.Context, content string, userPrompt string) (string, error) {
+	if m.ProcessContentFunc != nil {
+		return m.ProcessContentFunc(ctx, content, userPrompt)
 	}
-	return "", errors.New("SummarizeFunc not implemented")
+	return "", errors.New("ProcessContentFunc not implemented")
+}
+
+func (m *MockLLM) ProcessContentWithMode(ctx context.Context, content string, userPrompt string, mode string) (string, error) {
+	if m.ProcessContentWithModeFunc != nil {
+		return m.ProcessContentWithModeFunc(ctx, content, userPrompt, mode)
+	}
+	return "", errors.New("ProcessContentWithModeFunc not implemented")
 }
 
 func TestApp_ProcessURL_Success(t *testing.T) {
@@ -41,7 +49,7 @@ func TestApp_ProcessURL_Success(t *testing.T) {
 	}
 
 	mockLLM := &MockLLM{
-		SummarizeFunc: func(ctx context.Context, content string, userPrompt string) (string, error) {
+		ProcessContentFunc: func(ctx context.Context, content string, userPrompt string) (string, error) {
 			if content != "Mock page content" {
 				return "", errors.New("unexpected content")
 			}
@@ -90,7 +98,7 @@ func TestApp_ProcessURL_SummarizeError(t *testing.T) {
 		},
 	}
 	mockLLM := &MockLLM{
-		SummarizeFunc: func(ctx context.Context, content string, userPrompt string) (string, error) {
+		ProcessContentFunc: func(ctx context.Context, content string, userPrompt string) (string, error) {
 			return "", summarizeErr
 		},
 	}

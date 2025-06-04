@@ -26,10 +26,31 @@ func NewOpenAIClient() (*OpenAIClient, error) {
 	return &OpenAIClient{client: client}, nil
 }
 
-// Summarize uses the OpenAI API to summarize the given content.
+// ProcessContent uses the OpenAI API to process the given content.
 // If userPrompt is provided, it attempts to answer the prompt based on the content first.
-func (c *OpenAIClient) Summarize(ctx context.Context, content string, userPrompt string) (string, error) {
-	systemPrompt := `You are an expert summarizer. Analyze the provided web page content and generate a concise summary based on the user's request.
+func (c *OpenAIClient) ProcessContent(ctx context.Context, content string, userPrompt string) (string, error) {
+	return c.ProcessContentWithMode(ctx, content, userPrompt, "summary")
+}
+
+// ProcessContentWithMode allows specifying the processing mode
+func (c *OpenAIClient) ProcessContentWithMode(ctx context.Context, content string, userPrompt string, mode string) (string, error) {
+	var systemPrompt string
+	var instructions string
+
+	switch mode {
+	case "thread":
+		// Simple Q&A format for thread responses
+		systemPrompt = `You are an AI assistant helping with a conversation thread. Analyze the provided context and respond naturally to the user's question. Provide clear, helpful answers based on the information available.`
+
+		if userPrompt != "" {
+			instructions = fmt.Sprintf("Based on the provided context, please answer the following question: %s\n\nIf the context doesn't contain enough information to answer the question, please state that clearly.", userPrompt)
+		} else {
+			instructions = "Please provide a helpful response based on the provided context."
+		}
+
+	default: // "summary" mode
+		// Original format for initial mentions
+		systemPrompt = `You are an expert summarizer. Analyze the provided web page content and generate a concise summary based on the user's request.
 
 Output Format:
 (If the user asked a question, answer it here based *only* on the provided text. If the text doesn't contain the answer, state that clearly. If no question was asked, omit this section.)
@@ -49,18 +70,24 @@ Explanation of the main points of the article
 (Key points can be increased arbitrarily)
 `
 
-	prompt := fmt.Sprintf("Web Page Content:\n```\n%s\n```\n\n", content)
+		if userPrompt != "" {
+			instructions = fmt.Sprintf("User Question: %s\n\nInstructions: First, answer the user's question based *only* on the provided content. If the content doesn't contain the answer, state 'この記事にはその情報が含まれていません。'. Then, provide the 3-line summary and the detailed explanation as described in the system prompt.", userPrompt)
+		} else {
+			instructions = "Instructions: Provide the 3-line summary and the detailed explanation as described in the system prompt."
+		}
+	}
 
-	if userPrompt != "" {
-		prompt += fmt.Sprintf("User Question: %s\n\nInstructions: First, answer the user's question based *only* on the provided content. If the content doesn't contain the answer, state 'この記事にはその情報が含まれていません。'. Then, provide the 3-line summary and the detailed explanation as described in the system prompt.", userPrompt)
-	} else {
-		prompt += "Instructions: Provide the 3-line summary and the detailed explanation as described in the system prompt."
+	prompt := fmt.Sprintf("Content:\n```\n%s\n```\n\n%s", content, instructions)
+
+	model := "chatgpt-4o-latest"
+	if os.Getenv("OPENAI_MODEL") != "" {
+		model = os.Getenv("OPENAI_MODEL")
 	}
 
 	resp, err := c.client.CreateChatCompletion(
 		ctx,
 		openai.ChatCompletionRequest{
-			Model: openai.GPT4oLatest,
+			Model: model,
 			Messages: []openai.ChatCompletionMessage{
 				{
 					Role:    openai.ChatMessageRoleSystem,

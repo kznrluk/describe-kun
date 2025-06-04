@@ -20,10 +20,10 @@ func TestNewOpenAIClient_MissingAPIKey(t *testing.T) {
 	}
 }
 
-// TestSummarize requires a valid OPENAI_API_KEY to be set in the environment.
+// TestProcessContent requires a valid OPENAI_API_KEY to be set in the environment.
 // It also makes a real API call, which might incur costs.
 // Consider using mocks for more robust testing in a real-world scenario.
-func TestSummarize_Integration(t *testing.T) {
+func TestProcessContent_Integration(t *testing.T) {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		t.Skip("Skipping integration test: OPENAI_API_KEY not set")
@@ -39,9 +39,9 @@ func TestSummarize_Integration(t *testing.T) {
 	userPrompt := "What are the key features of Go?"
 
 	// Test with user prompt
-	summaryWithPrompt, err := client.Summarize(ctx, content, userPrompt)
+	summaryWithPrompt, err := client.ProcessContent(ctx, content, userPrompt)
 	if err != nil {
-		t.Fatalf("Summarize with prompt failed: %v", err)
+		t.Fatalf("ProcessContent with prompt failed: %v", err)
 	}
 	if summaryWithPrompt == "" {
 		t.Error("Expected a summary with prompt, but got empty string")
@@ -49,9 +49,9 @@ func TestSummarize_Integration(t *testing.T) {
 	t.Logf("Summary with prompt:\n%s", summaryWithPrompt) // Log for manual inspection
 
 	// Test without user prompt (just summary)
-	summaryOnly, err := client.Summarize(ctx, content, "")
+	summaryOnly, err := client.ProcessContent(ctx, content, "")
 	if err != nil {
-		t.Fatalf("Summarize without prompt failed: %v", err)
+		t.Fatalf("ProcessContent without prompt failed: %v", err)
 	}
 	if summaryOnly == "" {
 		t.Error("Expected a summary only, but got empty string")
