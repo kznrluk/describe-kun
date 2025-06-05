@@ -28,8 +28,20 @@ func NewApp(f fetcher.Fetcher, l llm.LLM) *App {
 	}
 }
 
+// ProgressCallback is a function type for progress updates
+type ProgressCallback func(message string)
+
 // ProcessURL fetches content from a URL and generates a summary using the LLM.
 func (a *App) ProcessURL(ctx context.Context, url string, userPrompt string) (string, error) {
+	return a.ProcessURLWithProgress(ctx, url, userPrompt, nil)
+}
+
+// ProcessURLWithProgress fetches content from a URL and generates a summary using the LLM with progress updates.
+func (a *App) ProcessURLWithProgress(ctx context.Context, url string, userPrompt string, progressCallback ProgressCallback) (string, error) {
+	if progressCallback != nil {
+		progressCallback(fmt.Sprintf(":loading: Fetching content from %s...", url))
+	}
+
 	// Fetch content from the URL
 	content, err := a.fetcher.Fetch(ctx, url)
 	if err != nil {
@@ -38,6 +50,10 @@ func (a *App) ProcessURL(ctx context.Context, url string, userPrompt string) (st
 
 	if content == "" {
 		return "", fmt.Errorf("fetched content is empty for url: %s", url)
+	}
+
+	if progressCallback != nil {
+		progressCallback(fmt.Sprintf(":loading: Generating summary for %s...", url))
 	}
 
 	// Process the content using the LLM
@@ -58,14 +74,26 @@ type ThreadContext struct {
 
 // ProcessThreadMention processes a mention within a thread context
 func (a *App) ProcessThreadMention(ctx context.Context, threadContext *ThreadContext, latestMentionText string, latestMentionURLs []string) (string, error) {
+	return a.ProcessThreadMentionWithProgress(ctx, threadContext, latestMentionText, latestMentionURLs, nil)
+}
+
+// ProcessThreadMentionWithProgress processes a mention within a thread context with progress updates
+func (a *App) ProcessThreadMentionWithProgress(ctx context.Context, threadContext *ThreadContext, latestMentionText string, latestMentionURLs []string, progressCallback ProgressCallback) (string, error) {
 	// Fetch content for any new URLs in the latest mention
 	latestURLContents := make(map[string]string)
-	for _, url := range latestMentionURLs {
+	for i, url := range latestMentionURLs {
+		if progressCallback != nil {
+			progressCallback(fmt.Sprintf(":loading: Fetching new URL %d/%d: %s", i+1, len(latestMentionURLs), url))
+		}
 		content, err := a.fetcher.Fetch(ctx, url)
 		if err != nil {
 			return "", fmt.Errorf("failed to fetch content for URL %s: %w", url, err)
 		}
 		latestURLContents[url] = content
+	}
+
+	if progressCallback != nil {
+		progressCallback(":loading: Analyzing thread context and generating response...")
 	}
 
 	// Build the comprehensive prompt

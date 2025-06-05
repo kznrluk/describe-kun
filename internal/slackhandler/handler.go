@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
 
 	"github.com/kznrluk/describe-kun/internal/app" // Assuming app provides the core processing logic
 	"github.com/slack-go/slack"
@@ -129,37 +130,63 @@ func (h *SlackHandler) handleNewMention(event *slackevents.AppMentionEvent) {
 	urls := extractURLs(event.Text)
 	if len(urls) == 0 {
 		log.Printf("No URLs found in mention from user %s in channel %s", event.User, event.Channel)
+		// Post a message indicating no URLs were found
+		_, _, postErr := h.SlackClient.PostMessage(
+			event.Channel,
+			slack.MsgOptionText("No URLs found in your message. Please include a URL for me to summarize.", false),
+			slack.MsgOptionTS(event.TimeStamp),
+		)
+		if postErr != nil {
+			log.Printf("Error posting no URLs message to Slack: %v", postErr)
+		}
 		return
 	}
 
 	log.Printf("Found URLs: %v in mention from user %s", urls, event.User)
 
-	for _, url := range urls {
-		summary, err := h.AppCore.ProcessURL(context.Background(), url, "")
+	// Post initial loading message
+	_, loadingTS, postErr := h.SlackClient.PostMessage(
+		event.Channel,
+		slack.MsgOptionText(":loading:", false),
+		slack.MsgOptionTS(event.TimeStamp),
+	)
+	if postErr != nil {
+		log.Printf("Error posting loading message to Slack: %v", postErr)
+		return
+	}
+
+	// Create progress updater
+	progressUpdater := &ProgressUpdater{
+		client:    h.SlackClient,
+		channel:   event.Channel,
+		timestamp: loadingTS,
+	}
+
+	// Process URLs with progress updates
+	var allSummaries []string
+	for i, url := range urls {
+		// Update progress
+		progressMsg := fmt.Sprintf(":loading: Processing URL %d/%d: %s", i+1, len(urls), url)
+		progressUpdater.UpdateProgress(progressMsg)
+
+		summary, err := h.AppCore.ProcessURLWithProgress(context.Background(), url, "", progressUpdater.UpdateProgress)
 		if err != nil {
 			log.Printf("Error processing URL %s: %v", url, err)
-			_, _, postErr := h.SlackClient.PostMessage(
-				event.Channel,
-				slack.MsgOptionText(fmt.Sprintf("Error summarizing %s: %v", url, err), false),
-				slack.MsgOptionTS(event.TimeStamp),
-			)
-			if postErr != nil {
-				log.Printf("Error posting error message to Slack: %v", postErr)
-			}
+			errorMsg := fmt.Sprintf("Error summarizing %s: %v", url, err)
+			progressUpdater.UpdateProgress(errorMsg)
 			continue
 		}
 
-		response := fmt.Sprintf("Summary for %s:\n%s", url, summary)
-		_, _, postErr := h.SlackClient.PostMessage(
-			event.Channel,
-			slack.MsgOptionText(response, false),
-			slack.MsgOptionTS(event.TimeStamp),
-		)
-		if postErr != nil {
-			log.Printf("Error posting summary for %s to Slack: %v", url, postErr)
-		} else {
-			log.Printf("Successfully posted summary for %s to channel %s", url, event.Channel)
-		}
+		allSummaries = append(allSummaries, fmt.Sprintf("Summary for %s:\n%s", url, summary))
+	}
+
+	// Post final result by updating the loading message
+	if len(allSummaries) > 0 {
+		finalResponse := strings.Join(allSummaries, "\n\n---\n\n")
+		progressUpdater.UpdateProgress(finalResponse)
+		log.Printf("Successfully posted summaries to channel %s", event.Channel)
+	} else {
+		progressUpdater.UpdateProgress("No summaries could be generated.")
 	}
 }
 
@@ -167,55 +194,60 @@ func (h *SlackHandler) handleNewMention(event *slackevents.AppMentionEvent) {
 func (h *SlackHandler) handleThreadMention(event *slackevents.AppMentionEvent) {
 	log.Printf("Handling thread mention from user %s in channel %s, thread %s", event.User, event.Channel, event.ThreadTimeStamp)
 
+	// Post initial loading message
+	_, loadingTS, postErr := h.SlackClient.PostMessage(
+		event.Channel,
+		slack.MsgOptionText(":loading:", false),
+		slack.MsgOptionTS(event.ThreadTimeStamp),
+	)
+	if postErr != nil {
+		log.Printf("Error posting loading message to Slack: %v", postErr)
+		return
+	}
+
+	// Create progress updater
+	progressUpdater := &ProgressUpdater{
+		client:    h.SlackClient,
+		channel:   event.Channel,
+		timestamp: loadingTS,
+	}
+
+	// Update progress: Getting thread context
+	progressUpdater.UpdateProgress(":loading: Getting thread context...")
+
 	// Get thread context
 	threadContext, err := h.getThreadContext(event.Channel, event.ThreadTimeStamp)
 	if err != nil {
 		log.Printf("Error getting thread context: %v", err)
-		_, _, postErr := h.SlackClient.PostMessage(
-			event.Channel,
-			slack.MsgOptionText(fmt.Sprintf("Error getting thread context: %v", err), false),
-			slack.MsgOptionTS(event.ThreadTimeStamp),
-		)
-		if postErr != nil {
-			log.Printf("Error posting error message to Slack: %v", postErr)
-		}
+		errorMsg := fmt.Sprintf("Error getting thread context: %v", err)
+		progressUpdater.UpdateProgress(errorMsg)
 		return
 	}
 
 	// Extract URLs from the latest mention
 	latestMentionURLs := extractURLs(event.Text)
 
+	// Update progress: Processing thread mention
+	progressUpdater.UpdateProgress(":loading: Processing thread mention...")
+
 	// Process the thread mention
-	response, err := h.AppCore.ProcessThreadMention(
+	response, err := h.AppCore.ProcessThreadMentionWithProgress(
 		context.Background(),
 		threadContext,
 		event.Text,
 		latestMentionURLs,
+		progressUpdater.UpdateProgress,
 	)
 	if err != nil {
 		log.Printf("Error processing thread mention: %v", err)
-		_, _, postErr := h.SlackClient.PostMessage(
-			event.Channel,
-			slack.MsgOptionText(fmt.Sprintf("Error processing thread mention: %v", err), false),
-			slack.MsgOptionTS(event.ThreadTimeStamp),
-		)
-		if postErr != nil {
-			log.Printf("Error posting error message to Slack: %v", postErr)
-		}
+		errorMsg := fmt.Sprintf("Error processing thread mention: %v", err)
+		progressUpdater.UpdateProgress(errorMsg)
 		return
 	}
 
-	// Post the response back to the thread
-	_, _, postErr := h.SlackClient.PostMessage(
-		event.Channel,
-		slack.MsgOptionText(response, false),
-		slack.MsgOptionTS(event.ThreadTimeStamp),
-	)
-	if postErr != nil {
-		log.Printf("Error posting thread response to Slack: %v", postErr)
-	} else {
-		log.Printf("Successfully posted thread response to channel %s", event.Channel)
-	}
+	// Post the final response by updating the loading message
+	progressUpdater.UpdateProgress(response)
+	log.Printf("Successfully posted thread response to channel %s", event.Channel)
 }
 
 // getThreadContext retrieves all messages and URLs from a thread
@@ -275,6 +307,25 @@ func extractURLs(text string) []string {
 	// This regex looks for http/https protocols
 	urlRegex := regexp.MustCompile(`https?://[^\s<>"]+|www\.[^\s<>"]+`)
 	return urlRegex.FindAllString(text, -1)
+}
+
+// ProgressUpdater handles updating Slack messages with progress information
+type ProgressUpdater struct {
+	client    *slack.Client
+	channel   string
+	timestamp string
+}
+
+// UpdateProgress updates the Slack message with new progress information
+func (p *ProgressUpdater) UpdateProgress(message string) {
+	_, _, _, err := p.client.UpdateMessage(
+		p.channel,
+		p.timestamp,
+		slack.MsgOptionText(message, false),
+	)
+	if err != nil {
+		log.Printf("Error updating progress message: %v", err)
+	}
 }
 
 // Helper function to replace the request body after reading it once
